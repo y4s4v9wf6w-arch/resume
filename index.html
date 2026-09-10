@@ -1241,7 +1241,7 @@ function switchProject(idx){
 
       robot.style.left = targetLeft + "px";
       robot.style.top = targetTop + "px";
-      window.__setRobotRel && window.__setRobotRel(targetLeft - sRect.left, targetTop - sRect.top);
+      window.__setRobotViewPos && window.__setRobotViewPos(targetLeft, targetTop);
 
       // 出现动画 + 挥手打招呼
       window.__setRobotAppearing && window.__setRobotAppearing(true);
@@ -1283,13 +1283,21 @@ renderProject(0);
   let blinkTimer = null;
   let lookTimer = null;
 
-  // 机器人相对于区块左上角的偏移（用于滚动跟随）
-  let relX = 0, relY = 0;
-  window.__setRobotRel = (x, y) => { relX = x; relY = y; };
+  // 机器人在视口中的目标位置（fixed 坐标），滚动时保持不变（跟随视口）
+  let viewX = 0, viewY = 0;
+  window.__setRobotViewPos = (x, y) => { viewX = x; viewY = y; };
 
-  function getBounds(){
+  // 把视口目标位置 clamp 到项目区块在视口中的边界内
+  function clampToSection(x, y){
     const r = section.getBoundingClientRect();
-    return { minX:r.left, maxX:r.right - robot.offsetWidth, minY:r.top, maxY:r.bottom - robot.offsetHeight };
+    const minX = Math.max(r.left, 0);
+    const maxX = Math.min(r.right - robot.offsetWidth, window.innerWidth - robot.offsetWidth);
+    const minY = Math.max(r.top, 0);
+    const maxY = Math.min(r.bottom - robot.offsetHeight, window.innerHeight - robot.offsetHeight);
+    return {
+      x: clamp(x, minX, Math.max(minX, maxX)),
+      y: clamp(y, minY, Math.max(minY, maxY))
+    };
   }
 
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
@@ -1302,29 +1310,28 @@ renderProject(0);
   function snapToEdge(){
     const sRect = section.getBoundingClientRect();
     const rRect = robot.getBoundingClientRect();
-    const curLeft = rRect.left - sRect.left;
-    const maxLeft = sRect.width - robot.offsetWidth;
+    const curLeft = rRect.left; // 视口坐标
+    const sectionLeft = sRect.left;
+    const sectionRight = sRect.right - robot.offsetWidth;
 
-    const distLeft = curLeft;
-    const distRight = maxLeft - curLeft;
+    const distLeft = curLeft - sectionLeft;
+    const distRight = sectionRight - curLeft;
 
     let snapLeft;
     let edgeDir;
     if(distLeft <= distRight){
-      snapLeft = 0;
+      snapLeft = sectionLeft;
       edgeDir = "left";
     } else {
-      snapLeft = maxLeft;
+      snapLeft = sectionRight;
       edgeDir = "right";
     }
 
     robot.classList.remove("dragging");
     clearStretch();
-    // 恢复 transition，让贴边有动画
     robot.style.transition = "";
-    const newLeft = sRect.left + snapLeft;
-    robot.style.left = newLeft + "px";
-    relX = snapLeft;
+    robot.style.left = snapLeft + "px";
+    viewX = snapLeft; // 更新视口目标位置
 
     bubble.classList.remove("pos-top","pos-bottom","pos-left","pos-right");
     if(edgeDir === "left") bubble.classList.add("pos-right");
@@ -1379,10 +1386,9 @@ renderProject(0);
 
   let scrollStopTimer = null;
   let appearing = false;
-  // 滚动跟随：根据区块位置更新机器人位置和可见性
+  // 滚动跟随：机器人保持视口目标位置，但 clamp 到项目区块内
   function updateRobotPosition(){
     if(robot.style.display === "none") return;
-    // 出现动画期间不更新位置，避免打断动画
     if(appearing) return;
     const sRect = section.getBoundingClientRect();
     const vh = window.innerHeight;
@@ -1391,14 +1397,12 @@ renderProject(0);
     const sectionInView = sRect.bottom > 0 && sRect.top < vh;
 
     if(sectionInView){
-      // 滚动时直接禁用 transition，确保实时跟随
       robot.style.transition = "none";
       robot.classList.add("visible");
-      const targetLeft = sRect.left + relX;
-      const targetTop = sRect.top + relY;
-      robot.style.left = targetLeft + "px";
-      robot.style.top = targetTop + "px";
-      // 滚动停止后恢复 transition
+      // 用视口目标位置，clamp 到项目区块内
+      const pos = clampToSection(viewX, viewY);
+      robot.style.left = pos.x + "px";
+      robot.style.top = pos.y + "px";
       clearTimeout(scrollStopTimer);
       scrollStopTimer = setTimeout(() => {
         if(!isDragging) robot.style.transition = "";
@@ -1435,25 +1439,27 @@ renderProject(0);
   robot.addEventListener("pointermove", function(e){
     if(!isDragging) return;
     if(Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) hasMoved = true;
-    const b = getBounds();
+    const sRect = section.getBoundingClientRect();
+    const minX = sRect.left;
+    const maxX = sRect.right - robot.offsetWidth;
+    const minY = sRect.top;
+    const maxY = sRect.bottom - robot.offsetHeight;
     const rawX = e.clientX - dragOffsetX;
     const rawY = e.clientY - dragOffsetY;
-    let x = clamp(rawX, b.minX, b.maxX);
-    let y = clamp(rawY, b.minY, b.maxY);
-    // fixed 定位直接用视口坐标
+    let x = clamp(rawX, minX, maxX);
+    let y = clamp(rawY, minY, maxY);
     robot.style.left = x + "px";
     robot.style.top = y + "px";
-    // 更新相对偏移
-    const sRect = section.getBoundingClientRect();
-    relX = x - sRect.left;
-    relY = y - sRect.top;
+    // 更新视口目标位置
+    viewX = x;
+    viewY = y;
 
     clearStretch();
     const threshold = 8;
-    if(rawX < b.minX + threshold) body.classList.add("stretch-left");
-    else if(rawX > b.maxX - threshold) body.classList.add("stretch-right");
-    if(rawY < b.minY + threshold) body.classList.add("stretch-top");
-    else if(rawY > b.maxY - threshold) body.classList.add("stretch-bottom");
+    if(rawX < minX + threshold) body.classList.add("stretch-left");
+    else if(rawX > maxX - threshold) body.classList.add("stretch-right");
+    if(rawY < minY + threshold) body.classList.add("stretch-top");
+    else if(rawY > maxY - threshold) body.classList.add("stretch-bottom");
   });
 
   robot.addEventListener("pointerup", function(e){
