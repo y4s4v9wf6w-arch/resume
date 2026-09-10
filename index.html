@@ -1300,6 +1300,8 @@ renderProject(0);
 
     robot.classList.remove("dragging");
     clearStretch();
+    // 恢复 transition，让贴边有动画
+    robot.style.transition = "";
     const newLeft = sRect.left + snapLeft;
     robot.style.left = newLeft + "px";
     relX = snapLeft;
@@ -1355,6 +1357,7 @@ renderProject(0);
     clearTimeout(lookTimer);
   }
 
+  let scrollStopTimer = null;
   // 滚动跟随：根据区块位置更新机器人位置和可见性
   function updateRobotPosition(){
     if(robot.style.display === "none") return;
@@ -1365,16 +1368,21 @@ renderProject(0);
     const sectionInView = sRect.bottom > 0 && sRect.top < vh;
 
     if(sectionInView){
-      // 滚动时禁用 transition，确保实时跟随
-      robot.classList.add("scrolling");
+      // 滚动时直接禁用 transition，确保实时跟随
+      robot.style.transition = "none";
       robot.classList.add("visible");
       const targetLeft = sRect.left + relX;
       const targetTop = sRect.top + relY;
       robot.style.left = targetLeft + "px";
       robot.style.top = targetTop + "px";
+      // 滚动停止后恢复 transition
+      clearTimeout(scrollStopTimer);
+      scrollStopTimer = setTimeout(() => {
+        if(!isDragging) robot.style.transition = "";
+      }, 120);
     } else {
       robot.classList.remove("visible");
-      robot.classList.remove("scrolling");
+      clearTimeout(scrollStopTimer);
     }
   }
 
@@ -1442,6 +1450,12 @@ renderProject(0);
       }, 2500);
       startIdleAnim();
     }
+  });
+
+  // 手臂挥手动画结束后隐藏
+  const arm = document.getElementById("robotArm");
+  arm.addEventListener("animationend", () => {
+    arm.classList.remove("wave");
   });
 
   // 初始化
