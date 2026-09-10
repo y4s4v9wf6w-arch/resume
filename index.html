@@ -150,12 +150,12 @@
   .hero-bg{
     position:absolute;inset:0;z-index:-1;
     background:url('深色生活照.jpg') center/cover no-repeat;
-    filter:blur(0px) brightness(0.62) saturate(1.15);
-    transform:scale(1.05);
+    filter:brightness(0.85) saturate(1.15);
+    transform:scale(1.02);
     transition:filter .8s ease;
   }
   .hero-bg.blurred{
-    filter:blur(6px) brightness(0.3) saturate(1);
+    filter:blur(6px) brightness(0.4) saturate(1);
   }
   .hero-wrap{display:grid;grid-template-columns:1.3fr .9fr;gap:60px;align-items:center;width:100%;position:relative;z-index:1}
   .hero-greet{
@@ -464,14 +464,17 @@
 
   /* ===== AI 毛茸茸机器人 ===== */
   .ai-robot{
-    position:absolute;
+    position:fixed;
     width:100px;height:86px;
     cursor:grab;
     user-select:none;
     z-index:10;
     touch-action:none;
-    transition:left .35s cubic-bezier(.34,1.56,.64,1), top .35s cubic-bezier(.34,1.56,.64,1);
+    transition:opacity .5s ease, left .35s cubic-bezier(.34,1.56,.64,1), top .35s cubic-bezier(.34,1.56,.64,1);
+    opacity:0;
+    pointer-events:none;
   }
+  .ai-robot.visible{opacity:1;pointer-events:auto}
   .ai-robot.dragging{transition:none}
   .ai-robot:active{cursor:grabbing}
   .robot-antenna{
@@ -1181,17 +1184,22 @@ function switchProject(idx){
     const bubble = document.getElementById("robotBubble");
     bubble.classList.remove("pos-top","pos-bottom","pos-left","pos-right");
     bubble.classList.add("pos-top");
+    // 重置机器人到项目区块右下角
     setTimeout(()=>{
       const sRect = document.getElementById("projects").getBoundingClientRect();
-      robot.style.left = (sRect.width - robot.offsetWidth - 20) + "px";
-      robot.style.top = (sRect.height - robot.offsetHeight - 20) + "px";
-      robot.style.right = "auto";
-      robot.style.bottom = "auto";
-      // 启动静止动画
+      const targetLeft = sRect.right - robot.offsetWidth - 20;
+      const targetTop = sRect.bottom - robot.offsetHeight - 20;
+      robot.style.left = targetLeft + "px";
+      robot.style.top = targetTop + "px";
+      // 记录相对于区块的偏移
+      window.__robotOffsetX = sRect.right - robot.offsetWidth - 20 - sRect.left;
+      window.__robotOffsetY = sRect.bottom - robot.offsetHeight - 20 - sRect.top;
+      window.__updateRobotVisibility && window.__updateRobotVisibility();
       if(window.__startRobotIdle) window.__startRobotIdle();
     }, 50);
   } else {
     robot.style.display = "none";
+    robot.classList.remove("visible");
     if(window.__stopRobotIdle) window.__stopRobotIdle();
   }
 }
@@ -1210,9 +1218,11 @@ renderProject(0);
   let dragOffsetX = 0, dragOffsetY = 0;
   let hasMoved = false;
   let startX = 0, startY = 0;
-  let idleTimer = null;
   let blinkTimer = null;
   let lookTimer = null;
+
+  // 机器人相对于区块左上角的偏移（用于滚动跟随）
+  let relX = 0, relY = 0;
 
   function getBounds(){
     const r = section.getBoundingClientRect();
@@ -1225,7 +1235,7 @@ renderProject(0);
     body.classList.remove("stretch-left","stretch-right","stretch-top","stretch-bottom");
   }
 
-  // 自动贴边
+  // 自动贴边（相对于区块）
   function snapToEdge(){
     const sRect = section.getBoundingClientRect();
     const rRect = robot.getBoundingClientRect();
@@ -1248,8 +1258,13 @@ renderProject(0);
 
     robot.classList.remove("dragging");
     clearStretch();
-    robot.style.left = snapLeft + "px";
-    robot.style.top = snapTop + "px";
+    // 更新视口坐标和相对偏移
+    const newLeft = sRect.left + snapLeft;
+    const newTop = sRect.top + snapTop;
+    robot.style.left = newLeft + "px";
+    robot.style.top = newTop + "px";
+    relX = snapLeft;
+    relY = snapTop;
 
     bubble.classList.remove("pos-top","pos-bottom","pos-left","pos-right");
     if(minDist === distLeft) bubble.classList.add("pos-right");
@@ -1272,7 +1287,6 @@ renderProject(0);
   function startIdleAnim(){
     stopIdleAnim();
     body.classList.add("idle-breathe");
-    // 随机眨眼
     function scheduleBlink(){
       const delay = 2000 + Math.random()*4000;
       blinkTimer = setTimeout(()=>{
@@ -1281,7 +1295,6 @@ renderProject(0);
       }, delay);
     }
     scheduleBlink();
-    // 随机左右看
     function scheduleLook(){
       const delay = 3000 + Math.random()*5000;
       lookTimer = setTimeout(()=>{
@@ -1306,12 +1319,38 @@ renderProject(0);
     clearTimeout(lookTimer);
   }
 
+  // 滚动跟随：根据区块位置更新机器人位置和可见性
+  function updateRobotPosition(){
+    if(robot.style.display === "none") return;
+    const sRect = section.getBoundingClientRect();
+    const vh = window.innerHeight;
+
+    // 区块是否在视口中
+    const sectionInView = sRect.bottom > 0 && sRect.top < vh;
+
+    if(sectionInView){
+      robot.classList.add("visible");
+      // 跟随滚动：用相对偏移更新视口坐标
+      const targetLeft = sRect.left + relX;
+      const targetTop = sRect.top + relY;
+      robot.style.left = targetLeft + "px";
+      robot.style.top = targetTop + "px";
+    } else {
+      robot.classList.remove("visible");
+    }
+  }
+
+  window.__updateRobotVisibility = updateRobotPosition;
+
+  // 监听滚动
+  window.addEventListener("scroll", updateRobotPosition, {passive:true});
+  window.addEventListener("resize", updateRobotPosition);
+
   robot.addEventListener("pointerdown", function(e){
     isDragging = true;
     hasMoved = false;
     stopIdleAnim();
     robot.classList.add("dragging");
-    // 拖动时闭眼挣扎
     eyeL.classList.add("blink");
     eyeR.classList.add("blink");
     startX = e.clientX;
@@ -1331,13 +1370,14 @@ renderProject(0);
     const rawY = e.clientY - dragOffsetY;
     let x = clamp(rawX, b.minX, b.maxX);
     let y = clamp(rawY, b.minY, b.maxY);
+    // fixed 定位直接用视口坐标
+    robot.style.left = x + "px";
+    robot.style.top = y + "px";
+    // 更新相对偏移
     const sRect = section.getBoundingClientRect();
-    robot.style.left = (x - sRect.left) + "px";
-    robot.style.top = (y - sRect.top) + "px";
-    robot.style.right = "auto";
-    robot.style.bottom = "auto";
+    relX = x - sRect.left;
+    relY = y - sRect.top;
 
-    // 边界拉伸动画
     clearStretch();
     const threshold = 8;
     if(rawX < b.minX + threshold) body.classList.add("stretch-left");
@@ -1366,12 +1406,14 @@ renderProject(0);
     }
   });
 
-  // 初始化静止动画（延迟等机器人显示）
+  // 初始化
   setTimeout(()=>{
-    if(robot.style.display !== "none") startIdleAnim();
+    if(robot.style.display !== "none"){
+      startIdleAnim();
+      updateRobotPosition();
+    }
   }, 300);
 
-  // 暴露到外部供 switchProject 调用
   window.__startRobotIdle = startIdleAnim;
   window.__stopRobotIdle = stopIdleAnim;
 })();
