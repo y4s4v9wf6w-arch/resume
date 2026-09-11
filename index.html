@@ -1239,12 +1239,15 @@ function switchProject(idx){
       robot.style.top = targetTop + "px";
       window.__setRobotRel && window.__setRobotRel(targetLeft - sRect.left, targetTop - sRect.top);
 
-      // 出现动画 + 挥手打招呼
+      // 出现：用内联 opacity 确保可靠显示（CSS transition 会处理淡入）
       robot.classList.add("visible");
+      robot.style.opacity = "1";
       setTimeout(()=>{
         arm.classList.add("wave");
         bubble.classList.add("show");
         setTimeout(()=>bubble.classList.remove("show"), 2000);
+        // 挥手动画 0.5s × 3次 = 1.5s，结束后隐藏手臂
+        setTimeout(()=>arm.classList.remove("wave"), 1700);
       }, 400);
       if(window.__startRobotIdle) window.__startRobotIdle();
     }, 50);
@@ -1264,6 +1267,7 @@ renderProject(0);
   const bubble = document.getElementById("robotBubble");
   const eyeL = document.getElementById("robotEyeL");
   const eyeR = document.getElementById("robotEyeR");
+  const arm = document.getElementById("robotArm");
   const section = document.getElementById("projects");
   let isDragging = false;
   let dragOffsetX = 0, dragOffsetY = 0;
@@ -1370,25 +1374,35 @@ renderProject(0);
     const sRect = section.getBoundingClientRect();
     const vh = window.innerHeight;
     const vw = window.innerWidth;
+    const rw = robot.offsetWidth;
+    const rh = robot.offsetHeight;
 
-    // 计算机器人的目标位置（视口坐标，已保证在区块内）
-    const targetLeft = sRect.left + relX;
-    const targetTop = sRect.top + relY;
-
-    // 机器人目标位置在视口内才显示
-    const robotInViewport = targetTop > -robot.offsetHeight * 0.3 && targetTop < vh - robot.offsetHeight * 0.7
-                         && targetLeft > -robot.offsetWidth * 0.3 && targetLeft < vw - robot.offsetWidth * 0.7;
-
-    if(robotInViewport){
-      robot.classList.add("scrolling");
-      robot.classList.add("visible");
-      robot.style.left = targetLeft + "px";
-      robot.style.top = targetTop + "px";
-    } else {
+    // 区块完全离开视口才渐隐
+    const sectionOutOfView = sRect.bottom <= 0 || sRect.top >= vh;
+    if(sectionOutOfView){
+      robot.style.opacity = "0";
       robot.classList.remove("visible");
       robot.classList.remove("appear");
       robot.classList.remove("scrolling");
+      return;
     }
+
+    // 区块还在视口内（部分或全部），机器人保持可见
+    robot.classList.add("scrolling");
+    robot.classList.add("visible");
+    robot.style.opacity = "1";
+
+    // 自然位置：跟随区块移动
+    let targetLeft = sRect.left + relX;
+    let targetTop = sRect.top + relY;
+
+    // 若自然位置超出视口，则贴住视口边缘继续跟随（不消失）
+    const margin = 20;
+    targetLeft = Math.max(margin, Math.min(targetLeft, vw - rw - margin));
+    targetTop = Math.max(margin, Math.min(targetTop, vh - rh - margin));
+
+    robot.style.left = targetLeft + "px";
+    robot.style.top = targetTop + "px";
   }
 
   window.__updateRobotVisibility = updateRobotPosition;
@@ -1461,6 +1475,13 @@ renderProject(0);
   robot.addEventListener("animationend", (e) => {
     if(e.animationName === "robotAppear"){
       robot.classList.remove("appear");
+    }
+  });
+
+  // 挥手动画结束后隐藏手臂
+  arm.addEventListener("animationend", (e) => {
+    if(e.animationName === "waveHand"){
+      arm.classList.remove("wave");
     }
   });
 
