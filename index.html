@@ -470,12 +470,12 @@
     user-select:none;
     z-index:10;
     touch-action:none;
-    transition:opacity .5s ease, left .35s cubic-bezier(.34,1.56,.64,1), top .35s cubic-bezier(.34,1.56,.64,1);
+    transition:opacity .5s ease, left .35s cubic-bezier(.22,1,.36,1), top .35s cubic-bezier(.22,1,.36,1);
     opacity:0;
     pointer-events:none;
   }
   .ai-robot.visible{opacity:1;pointer-events:auto}
-  .ai-robot.scrolling{transition:opacity .5s ease, left .18s linear, top .18s linear}
+  .ai-robot.scrolling{transition:opacity .5s ease, left .35s cubic-bezier(.22,1,.36,1), top .35s cubic-bezier(.22,1,.36,1)}
   .ai-robot.dragging{transition:none}
   .ai-robot:active{cursor:grabbing}
   /* 出现动画 */
@@ -1225,19 +1225,22 @@ function switchProject(idx){
       const rw = robot.offsetWidth;
       const rh = robot.offsetHeight;
 
-      // 优先区块右下角，clamp 到视口范围内
-      let targetLeft = sRect.right - rw - 20;
-      let targetTop = sRect.bottom - rh - 20;
-      const minLeft = Math.max(sRect.left + 20, 20);
-      const maxLeft = Math.min(sRect.right - rw - 20, vw - rw - 20);
-      const minTop = Math.max(sRect.top + 20, 20);
-      const maxTop = Math.min(sRect.bottom - rh - 20, vh - rh - 20);
+      // 优先区块右下角，clamp 到视口范围内（margin 与滚动跟随一致）
+      const mTop = 24, mBottom = 20, mLeft = 20, mRight = 26;
+      let targetLeft = sRect.right - rw - mRight;
+      let targetTop = sRect.bottom - rh - mBottom;
+      const minLeft = Math.max(sRect.left + mLeft, mLeft);
+      const maxLeft = Math.min(sRect.right - rw - mRight, vw - rw - mRight);
+      const minTop = Math.max(sRect.top + mTop, mTop);
+      const maxTop = Math.min(sRect.bottom - rh - mBottom, vh - rh - mBottom);
       targetLeft = Math.min(Math.max(targetLeft, minLeft), Math.max(minLeft, maxLeft));
       targetTop = Math.min(Math.max(targetTop, minTop), Math.max(minTop, maxTop));
 
       robot.style.left = targetLeft + "px";
       robot.style.top = targetTop + "px";
       window.__setRobotRel && window.__setRobotRel(targetLeft - sRect.left, targetTop - sRect.top);
+      // 设置 sticky 锚点：机器人尽量保持在这个视口坐标，仅被区块边缘限制
+      window.__setRobotFixedView && window.__setRobotFixedView(targetTop, targetLeft);
 
       // 出现：用内联 opacity 确保可靠显示（CSS transition 会处理淡入）
       robot.classList.add("visible");
@@ -1276,9 +1279,12 @@ renderProject(0);
   let blinkTimer = null;
   let lookTimer = null;
 
-  // 机器人相对于区块左上角的偏移（用于滚动跟随）
+  // 机器人相对于区块左上角的偏移（用于拖拽时保持在区块内）
   let relX = 0, relY = 0;
+  // 机器人的"固定视口位置"：sticky 行为的锚点，滚动时尽量保持这个视口坐标
+  let fixedViewTop = 0, fixedViewLeft = 0;
   window.__setRobotRel = (x, y) => { relX = x; relY = y; };
+  window.__setRobotFixedView = (top, left) => { fixedViewTop = top; fixedViewLeft = left; };
 
   function getBounds(){
     const r = section.getBoundingClientRect();
@@ -1314,8 +1320,13 @@ renderProject(0);
     robot.classList.remove("dragging");
     clearStretch();
     const newLeft = sRect.left + snapLeft;
+    const newTop = robot.offsetTop;
     robot.style.left = newLeft + "px";
     relX = snapLeft;
+    relY = newTop - sRect.top;
+    // 更新 sticky 锚点为当前视口位置
+    fixedViewLeft = newLeft;
+    fixedViewTop = newTop;
 
     bubble.classList.remove("pos-top","pos-bottom","pos-left","pos-right");
     if(edgeDir === "left") bubble.classList.add("pos-right");
@@ -1371,6 +1382,7 @@ renderProject(0);
   // 滚动跟随：根据区块位置更新机器人位置和可见性
   function updateRobotPosition(){
     if(robot.style.display === "none") return;
+    if(isDragging) return;
     const sRect = section.getBoundingClientRect();
     const vh = window.innerHeight;
     const vw = window.innerWidth;
@@ -1392,17 +1404,31 @@ renderProject(0);
     robot.classList.add("visible");
     robot.style.opacity = "1";
 
-    // 自然位置：跟随区块移动
-    let targetLeft = sRect.left + relX;
-    let targetTop = sRect.top + relY;
-
-    // 若自然位置超出视口，则贴住视口边缘继续跟随（不消失）
-    const margin = 20;
-    targetLeft = Math.max(margin, Math.min(targetLeft, vw - rw - margin));
-    targetTop = Math.max(margin, Math.min(targetTop, vh - rh - margin));
+    // Sticky 行为：机器人尽量保持在固定视口位置(fixedView)，
+    // 但被限制在项目区块范围内，不能移出区块。
+    // margin 需容纳天线(上溢~8px)、手臂(右溢~6px)、身体光晕(4px)
+    const mTop = 24, mBottom = 20, mLeft = 20, mRight = 26;
+    const minTop = Math.max(sRect.top, mTop);
+    const maxTop = Math.min(sRect.bottom - rh, vh - rh - mBottom);
+    const minLeft = Math.max(sRect.left, mLeft);
+    const maxLeft = Math.min(sRect.right - rw, vw - rw - mRight);
+    const targetTop = clamp(fixedViewTop, minTop, maxTop);
+    const targetLeft = clamp(fixedViewLeft, minLeft, maxLeft);
 
     robot.style.left = targetLeft + "px";
     robot.style.top = targetTop + "px";
+
+    // 气泡方向自适应：靠近顶部时朝下，靠近底部时朝上（不干扰左右吸附）
+    const bubble = document.getElementById("robotBubble");
+    if(bubble){
+      const isTop = bubble.classList.contains("pos-top");
+      const isBottom = bubble.classList.contains("pos-bottom");
+      if(isTop || isBottom){
+        const nearTop = targetTop < 100;
+        bubble.classList.toggle("pos-top", !nearTop);
+        bubble.classList.toggle("pos-bottom", nearTop);
+      }
+    }
   }
 
   window.__updateRobotVisibility = updateRobotPosition;
