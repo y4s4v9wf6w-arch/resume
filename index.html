@@ -557,6 +557,17 @@
     0%,100%{transform:scale(1)}
     50%{transform:scale(1.04)}
   }
+  /* 摇头（静止超过10s触发） */
+  .robot-body.shake{
+    animation:headShake .6s ease-in-out;
+  }
+  @keyframes headShake{
+    0%,100%{transform:rotate(0)}
+    20%{transform:rotate(-9deg)}
+    40%{transform:rotate(8deg)}
+    60%{transform:rotate(-6deg)}
+    80%{transform:rotate(4deg)}
+  }
   .robot-eye.look-left{transform:translateX(-2px)}
   .robot-eye.look-right{transform:translateX(2px)}
   /* 毛茸茸边缘 */
@@ -1335,48 +1346,58 @@ renderProject(0);
 
   // 眨眼
   function blink(){
+    if(isIdleBusy) return;
+    isIdleBusy = true;
     eyeL.classList.add("blink");
     eyeR.classList.add("blink");
     setTimeout(()=>{
       eyeL.classList.remove("blink");
       eyeR.classList.remove("blink");
+      isIdleBusy = false;
     }, 180);
   }
 
+  // 摇头
+  function shakeHead(){
+    if(isIdleBusy) return;
+    isIdleBusy = true;
+    body.classList.add("shake");
+    setTimeout(()=>{
+      body.classList.remove("shake");
+      isIdleBusy = false;
+    }, 600);
+  }
+
   // 静止时的可爱动作
+  let isIdleBusy = false;
   function startIdleAnim(){
     stopIdleAnim();
     body.classList.add("idle-breathe");
+    isIdleBusy = false;
+    // 静止超过 3s 眨眼，超过 10s 摇头
     function scheduleBlink(){
-      const delay = 2000 + Math.random()*4000;
       blinkTimer = setTimeout(()=>{
         if(!isDragging) blink();
         scheduleBlink();
-      }, delay);
+      }, 3000);
+    }
+    function scheduleShake(){
+      lookTimer = setTimeout(()=>{
+        if(!isDragging) shakeHead();
+        scheduleShake();
+      }, 10000);
     }
     scheduleBlink();
-    function scheduleLook(){
-      const delay = 3000 + Math.random()*5000;
-      lookTimer = setTimeout(()=>{
-        if(!isDragging){
-          const dir = Math.random() > 0.5 ? "look-left" : "look-right";
-          eyeL.classList.add(dir);
-          eyeR.classList.add(dir);
-          setTimeout(()=>{
-            eyeL.classList.remove("look-left","look-right");
-            eyeR.classList.remove("look-left","look-right");
-          }, 1200);
-        }
-        scheduleLook();
-      }, delay);
-    }
-    scheduleLook();
+    scheduleShake();
   }
 
   function stopIdleAnim(){
-    body.classList.remove("idle-breathe");
+    body.classList.remove("idle-breathe","shake");
+    eyeL.classList.remove("blink");
+    eyeR.classList.remove("blink");
     clearTimeout(blinkTimer);
     clearTimeout(lookTimer);
+    isIdleBusy = false;
   }
 
   // 滚动跟随：根据区块位置更新机器人位置和可见性
@@ -1487,6 +1508,7 @@ renderProject(0);
     } else {
       robot.classList.remove("dragging");
       clearStretch();
+      startIdleAnim();
       blink();
       bubble.classList.add("show");
       clearTimeout(window.__robotBubbleTimer);
